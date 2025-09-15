@@ -1,0 +1,12 @@
+# Production requirements for sz_search_flask-v4
+# Core web framework
+flask>=2.0.0
+
+# HTTP client library for performance testing
+requests>=2.25.0
+
+# Optional: Enhanced JSON performance
+orjson>=3.0.0
+
+# Note: Senzing v4 SDK must be installed separately at /opt/senzing/er/
+# and PYTHONPATH must include /opt/senzing/er/sdk/python

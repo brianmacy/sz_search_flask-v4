@@ -1,0 +1,21 @@
+# Test requirements for sz_search_flask-v4
+# These packages are needed to run the test suite
+
+# Core testing framework (part of Python standard library)
+# unittest - no additional installation needed
+
+# For mocking HTTP requests in performance tests
+requests
+
+# Optional: Enhanced JSON performance (used by perftest if available)
+orjson
+
+# Optional: For test coverage reporting
+coverage
+
+# Optional: For test discovery and enhanced reporting
+pytest
+pytest-cov
+
+# Flask testing utilities (Flask is already required by main application)
+flask[testing]

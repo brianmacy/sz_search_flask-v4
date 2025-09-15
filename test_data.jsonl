@@ -1,0 +1,10 @@
+{"NAME_FULL": "John Smith", "ADDR_FULL": "123 Main St, Anytown, USA", "PHONE_NUMBER": "555-1234"}
+{"NAME_FULL": "Jane Doe", "EMAIL_ADDRESS": "jane.doe@example.com", "DATE_OF_BIRTH": "1985-06-15"}
+{"NAME_FULL": "Robert Johnson", "ADDR_FULL": "456 Oak Ave, Springfield, IL", "SSN_NUMBER": "123-45-6789"}
+{"NAME_FULL": "Mary Williams", "PHONE_NUMBER": "555-5678", "EMAIL_ADDRESS": "mary.williams@test.com"}
+{"NAME_FULL": "Michael Brown", "ADDR_FULL": "789 Pine Rd, Madison, WI", "DATE_OF_BIRTH": "1990-12-03"}
+{"NAME_FULL": "Sarah Davis", "EMAIL_ADDRESS": "sarah.davis@example.org", "PHONE_NUMBER": "555-9012"}
+{"NAME_FULL": "David Miller", "ADDR_FULL": "321 Elm St, Portland, OR", "SSN_NUMBER": "987-65-4321"}
+{"NAME_FULL": "Lisa Anderson", "DATE_OF_BIRTH": "1978-09-22", "EMAIL_ADDRESS": "lisa.anderson@mail.com"}
+{"NAME_FULL": "James Wilson", "PHONE_NUMBER": "555-3456", "ADDR_FULL": "654 Maple Dr, Austin, TX"}
+{"NAME_FULL": "Jennifer Taylor", "EMAIL_ADDRESS": "jennifer.taylor@test.net", "DATE_OF_BIRTH": "1992-04-11"}
