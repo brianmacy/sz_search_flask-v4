@@ -5,17 +5,17 @@
 # unittest - no additional installation needed
 
 # For mocking HTTP requests in performance tests
-requests
+requests==2.33.1
 
 # Optional: Enhanced JSON performance (used by perftest if available)
-orjson
+orjson==3.11.8
 
 # Optional: For test coverage reporting
-coverage
+coverage==7.13.5
 
 # Optional: For test discovery and enhanced reporting
-pytest
-pytest-cov
+pytest==9.0.3
+pytest-cov==7.1.0
 
 # Flask testing utilities (Flask is already required by main application)
-flask[testing]
+flask[testing]==3.1.3
