@@ -8,7 +8,7 @@
 requests==2.33.1
 
 # Optional: Enhanced JSON performance (used by perftest if available)
-orjson==3.11.8
+orjson==3.11.9
 
 # Optional: For test coverage reporting
 coverage==7.13.5
