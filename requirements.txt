@@ -3,7 +3,7 @@
 flask==3.1.3
 
 # HTTP client library for performance testing
-requests==2.33.1
+requests==2.34.0
 
 # Optional: Enhanced JSON performance
 orjson==3.11.9
