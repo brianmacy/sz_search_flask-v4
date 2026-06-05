@@ -5,7 +5,7 @@
 # unittest - no additional installation needed
 
 # For mocking HTTP requests in performance tests
-requests==2.33.1
+requests==2.34.2
 
 # Optional: Enhanced JSON performance (used by perftest if available)
 orjson==3.11.9
