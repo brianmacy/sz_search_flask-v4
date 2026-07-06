@@ -14,7 +14,7 @@ orjson==3.11.9
 coverage==7.13.5
 
 # Optional: For test discovery and enhanced reporting
-pytest==9.0.3
+pytest==9.1.0
 pytest-cov==7.1.0
 
 # Flask testing utilities (Flask is already required by main application)
