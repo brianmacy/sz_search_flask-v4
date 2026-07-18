@@ -1,4 +1,4 @@
-ARG BASE_IMAGE=senzing/senzingsdk-runtime:4.3.2
+ARG BASE_IMAGE=senzing/senzingsdk-runtime:4.3.3
 FROM ${BASE_IMAGE}
 
 LABEL Name="brain/sz_search_flask" \
