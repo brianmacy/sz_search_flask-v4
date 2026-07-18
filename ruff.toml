@@ -1,0 +1,10 @@
+# Ruff configuration for sz_search_flask-v4
+#
+# The test suite intentionally imports Senzing SDK symbols to assert their
+# availability (contract tests) and keeps a few mock/handle bindings that are
+# not directly referenced. Those trigger F401 (unused import) and F841 (unused
+# local) in test files even though the code is correct as written, so we relax
+# just those two rules for the test modules while keeping full linting on the
+# application code.
+[lint.per-file-ignores]
+"test_*.py" = ["F401", "F841"]
