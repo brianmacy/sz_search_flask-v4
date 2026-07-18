@@ -235,7 +235,7 @@ def do_search():
 
     if request.args.get('flags'):
         # Parse pipe-separated flags from query parameter
-        user_flags = request.args.get('flags').split('|')
+        _user_flags = request.args.get('flags').split('|')
         # Note: Senzing v4 doesn't have combine_flags helper,
         # so we use default flags for simplicity in this example
         # In production, you might implement custom flag combination logic

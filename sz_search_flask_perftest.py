@@ -28,7 +28,6 @@ import os
 import sys
 import time
 from statistics import mean, stdev
-from urllib.parse import urljoin
 
 import requests
 
