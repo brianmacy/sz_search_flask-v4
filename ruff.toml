@@ -6,5 +6,19 @@
 # local) in test files even though the code is correct as written, so we relax
 # just those two rules for the test modules while keeping full linting on the
 # application code.
+
+[lint]
+# BLE001 (blind-except): the Flask request handlers and the CLI/perftest
+# harness deliberately catch `Exception` so that a single unexpected engine or
+# I/O failure is reported and handled gracefully instead of crashing the
+# server / aborting the whole run. Narrowing these would change runtime
+# behavior, so the broad catch is intentional and this rule is disabled.
+ignore = ["BLE001"]
+
 [lint.per-file-ignores]
-"test_*.py" = ["F401", "F841"]
+# Test modules: relax F401/F841 (see above) plus a few style rules that only
+# reflect test-harness conventions and carry no runtime behavior:
+#   SIM117  - nested `with patch(...)` blocks are clearer per-mock in tests
+#   PLW1510 - helper subprocess.run() calls without an explicit check=
+#   PLW1509 - subprocess preexec_fn used for process-group teardown in tests
+"test_*.py" = ["F401", "F841", "SIM117", "PLW1510", "PLW1509"]

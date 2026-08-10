@@ -22,7 +22,8 @@ import json
 import logging
 import os
 import sys
-from flask import Flask, request, jsonify
+
+from flask import Flask, jsonify, request
 
 # =============================================================================
 # SENZING v4 SDK IMPORTS
@@ -33,15 +34,26 @@ from flask import Flask, request, jsonify
 # - SzError: Exception class for Senzing-specific errors
 # - SzEngineFlags: Constants for controlling search behavior
 try:
-    from senzing_core import SzAbstractFactoryCore
     from senzing import (
-        SzError, SzEngineFlags,
-        SzBadInputError, SzConfigurationError, SzDatabaseConnectionLostError,
-        SzDatabaseError, SzDatabaseTransientError, SzLicenseError,
-        SzNotFoundError, SzNotInitializedError, SzReplaceConflictError,
-        SzRetryTimeoutExceededError, SzRetryableError, SzSdkError,
-        SzUnhandledError, SzUnknownDataSourceError, SzUnrecoverableError
+        SzBadInputError,
+        SzConfigurationError,
+        SzDatabaseConnectionLostError,
+        SzDatabaseError,
+        SzDatabaseTransientError,
+        SzEngineFlags,
+        SzError,
+        SzLicenseError,
+        SzNotFoundError,
+        SzNotInitializedError,
+        SzReplaceConflictError,
+        SzRetryableError,
+        SzRetryTimeoutExceededError,
+        SzSdkError,
+        SzUnhandledError,
+        SzUnknownDataSourceError,
+        SzUnrecoverableError,
     )
+    from senzing_core import SzAbstractFactoryCore
 except ImportError:
     print(
         "ERROR: Failed to import Senzing v4 SDK. "
@@ -219,9 +231,7 @@ def do_search():
     Returns:
         Flask Response: JSON response with search results or error
     """
-    # Access global variables for Senzing engine and thread pool
-    global executor
-    global sz_engine
+    # Access module-level Senzing engine and thread pool (read-only here)
 
     # EXTRACT RAW REQUEST DATA
     # Using request.data.decode() maintains compatibility with various client types
@@ -292,7 +302,7 @@ try:
                 "360038774134-G2Module-Configuration-and-the-Senzing-API",
                 file=sys.stderr,
             )
-            exit(-1)
+            sys.exit(-1)
 
         # SENZING v4 SDK INITIALIZATION PATTERN
         # The v4 SDK uses a factory pattern for creating engine instances:
@@ -311,7 +321,7 @@ try:
         # - CPU cores available
         # - Database connection limits
         # - Expected request volume
-        max_workers = int(os.getenv("SENZING_THREADS_PER_PROCESS", 0))
+        max_workers = int(os.getenv("SENZING_THREADS_PER_PROCESS", "0"))
         if not max_workers:
             # None = use ThreadPoolExecutor's default (min(32, os.cpu_count() + 4))
             max_workers = None
@@ -324,7 +334,7 @@ except Exception as err:
     # Fail fast if Senzing cannot be initialized - the application cannot
     # function without a working Senzing engine
     print(err, file=sys.stderr)
-    exit(-1)
+    sys.exit(-1)
 
 
 # =============================================================================
@@ -343,7 +353,7 @@ if __name__ == '__main__':
     try:
         # ENVIRONMENT-BASED CONFIGURATION
         # Allow runtime configuration via environment variables
-        port = int(os.environ.get('PORT', 5000))
+        port = int(os.environ.get('PORT', '5000'))
         host = os.environ.get('HOST', '0.0.0.0')
         debug = os.environ.get('FLASK_DEBUG', 'False').lower() == 'true'
 
