@@ -5,8 +5,8 @@ import os
 import sys
 import tempfile
 import unittest
-from unittest.mock import MagicMock, patch, mock_open
 from io import StringIO
+from unittest.mock import MagicMock, mock_open, patch
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -76,7 +76,7 @@ class TestPerformanceTest(unittest.TestCase):
 
         self.assertTrue(result['success'])
         mock_post.assert_called_once()
-        args, kwargs = mock_post.call_args
+        _args, kwargs = mock_post.call_args
         self.assertEqual(kwargs['data'], json_data)
 
     @patch('sz_search_flask_perftest.orjson', None)
@@ -289,9 +289,8 @@ class TestMainFunction(unittest.TestCase):
         """Test main function when processing fails."""
         mock_process_file.return_value = False
 
-        with patch('builtins.print'):
-            with patch('sys.exit') as mock_exit:
-                sz_search_flask_perftest.main()
+        with patch('builtins.print'), patch('sys.exit') as mock_exit:
+            sz_search_flask_perftest.main()
 
         mock_exit.assert_called_once_with(1)
 

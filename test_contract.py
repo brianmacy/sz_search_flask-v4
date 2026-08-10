@@ -38,8 +38,8 @@ class TestSenzingV4APIContract(unittest.TestCase):
     def test_senzing_v4_imports_available(self):
         """Contract test: Verify Senzing v4 imports are available."""
         try:
+            from senzing import SzEngineFlags, SzError
             from senzing_core import SzAbstractFactoryCore
-            from senzing import SzError, SzEngineFlags
             self.assertTrue(True, "All required Senzing v4 imports successful")
         except ImportError as e:
             self.fail(f"Senzing v4 SDK import failed: {e}")

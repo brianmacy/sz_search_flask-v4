@@ -10,13 +10,14 @@ with real external dependencies and systems.
 import json
 import multiprocessing
 import os
-import requests
 import signal
 import subprocess
 import sys
 import time
 import unittest
 from threading import Thread
+
+import requests
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -218,7 +219,7 @@ class TestSenzingEngineIntegration(unittest.TestCase):
 
             # Test that search method exists and is callable
             self.assertTrue(hasattr(engine, 'search_by_attributes'))
-            self.assertTrue(callable(getattr(engine, 'search_by_attributes')))
+            self.assertTrue(callable(engine.search_by_attributes))
 
         except Exception as e:
             # May fail due to missing database setup, but should create objects
@@ -227,8 +228,8 @@ class TestSenzingEngineIntegration(unittest.TestCase):
 
     def test_senzing_engine_search_interface(self):
         """Integration test: Senzing engine search interface."""
-        from senzing_core import SzAbstractFactoryCore
         from senzing import SzEngineFlags
+        from senzing_core import SzAbstractFactoryCore
 
         test_config = json.dumps({
             "PIPELINE": {

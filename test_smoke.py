@@ -13,8 +13,9 @@ import subprocess
 import sys
 import time
 import unittest
-import requests
 from unittest.mock import patch
+
+import requests
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -49,9 +50,9 @@ class TestApplicationSmoke(unittest.TestCase):
         """Smoke test: Senzing v4 SDK imports work."""
         result = subprocess.run(
             [sys.executable, '-c',
-             'from senzing_core import SzAbstractFactoryCore; '
+             ('from senzing_core import SzAbstractFactoryCore; '
              'from senzing import SzError, SzEngineFlags; '
-             'print("SENZING_OK")'],
+             'print("SENZING_OK")')],
             env=self.test_env,
             capture_output=True,
             text=True,

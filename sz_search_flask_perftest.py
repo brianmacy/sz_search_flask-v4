@@ -76,7 +76,7 @@ class PerformanceTest:
         # Configure concurrency level based on environment or default
         # For Senzing APIs, this should typically match the server's thread configuration
         self.max_workers = max_workers or int(
-            os.environ.get('SENZING_THREADS_PER_PROCESS', 10)
+            os.environ.get('SENZING_THREADS_PER_PROCESS', '10')
         )
         self.timeout = timeout
         # Metrics collection arrays
@@ -192,12 +192,11 @@ class PerformanceTest:
         try:
             # PROCESS FILE LINE BY LINE
             # Memory-efficient approach for large test data files
-            with open(file_path, 'r') as file:
-                # CONCURRENT REQUEST PROCESSING
-                # ThreadPoolExecutor enables parallel HTTP requests
-                with concurrent.futures.ThreadPoolExecutor(
-                    max_workers=self.max_workers
-                ) as executor:
+            # CONCURRENT REQUEST PROCESSING
+            # ThreadPoolExecutor enables parallel HTTP requests
+            with open(file_path, 'r') as file, concurrent.futures.ThreadPoolExecutor(
+                max_workers=self.max_workers
+            ) as executor:
                     # SUBMIT BATCH OF CONCURRENT REQUESTS
                     # Collect futures for result processing
                     futures = []
@@ -329,7 +328,7 @@ def main():
     parser.add_argument(
         '--workers',
         type=int,
-        default=int(os.environ.get('SENZING_THREADS_PER_PROCESS', 10)),
+        default=int(os.environ.get('SENZING_THREADS_PER_PROCESS', '10')),
         help='Number of worker threads (default: from SENZING_THREADS_PER_PROCESS or 10)'
     )
     parser.add_argument(
