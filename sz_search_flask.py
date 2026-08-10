@@ -262,8 +262,11 @@ def do_search():
 
     except Exception as err:
         # STANDARDIZED ERROR RESPONSE
-        # Return JSON error format consistent with REST API conventions
-        return jsonify({'error': str(err)}), exception_to_code(err)
+        # Log the full exception server-side for debugging, but return a
+        # generic message to the client so exception/stack-trace details are
+        # never exposed in the HTTP response.
+        logger.exception("Error handling /search request")
+        return jsonify({'error': 'Internal server error'}), exception_to_code(err)
 
 
 # =============================================================================
