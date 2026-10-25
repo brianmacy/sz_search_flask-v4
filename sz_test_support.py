@@ -33,7 +33,7 @@ def engine_config():
 def import_app():
     """Import sz_search_flask (initializing the real engine) after checking the config."""
     engine_config()
-    import sz_search_flask  # noqa: PLC0415 - deferred until the config is verified
+    import sz_search_flask  # deferred until the config is verified
 
     return sz_search_flask
 

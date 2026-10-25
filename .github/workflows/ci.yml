@@ -45,10 +45,12 @@ jobs:
         "SQL":{"CONNECTION":"sqlite3://na:na@/tmp/sz_test/G2C.db"}}
     steps:
       - uses: actions/checkout@v7
-      - name: Install Python
+      # senzingsdk-setup supplies the SQLite schema SQL
+      # (<RESOURCEPATH>/schema/szcore-schema-sqlite-create.sql) used by setup_test_repo.py.
+      - name: Install Python and Senzing setup files
         run: |
           apt-get update
-          apt-get -y install --no-install-recommends python3 python3-venv
+          apt-get -y install --no-install-recommends python3 python3-venv senzingsdk-setup
       - name: Install dependencies
         run: |
           python3 -m venv /tmp/venv
