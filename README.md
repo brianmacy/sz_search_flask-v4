@@ -28,7 +28,7 @@ This project demonstrates best practices for building a production-ready Flask R
 - `sz_search_flask_perftest.py` - Concurrent performance testing script
 
 ### Test Suite
-- `test_sz_search_flask.py` - Unit tests with mocking
+- `test_sz_search_flask.py` - Unit tests against the real engine
 - `test_integration.py` - Integration tests with real server startup/shutdown
 - `test_contract.py` - Contract tests for Senzing v4 SDK API compatibility
 - `test_smoke.py` - Basic smoke tests for quick validation
@@ -38,7 +38,8 @@ This project demonstrates best practices for building a production-ready Flask R
 ### Deployment
 - `Dockerfile` - Container configuration for Senzing v4
 - `requirements.txt` - Python dependencies
-- `test_requirements.txt` - Testing dependencies
+- `test_requirements.txt` - Testing dependencies (incl. Senzing Python SDK)
+- `setup_test_repo.py` / `sz_test_support.py` - Scratch test repository setup and shared test helpers
 
 ## API Reference
 
@@ -134,24 +135,17 @@ The included performance test script supports concurrent load testing:
 
 ## Testing
 
-The project includes comprehensive test coverage:
+All tests run against the real Senzing engine (no mocks). Point
+`SENZING_ENGINE_CONFIGURATION_JSON` at a scratch SQLite repository, then:
 
 ```bash
-# Run all tests
-SENZING_ENGINE_CONFIGURATION_JSON='{"test": "config"}' python3 -m unittest discover -p "test_*.py" -v
-
-# Run specific test types
-./test_smoke.py        # Quick validation tests
-./test_contract.py     # API contract tests
-./test_integration.py  # Full integration tests
-./test_sz_search_flask.py  # Unit tests
+pip install -r requirements.txt -r test_requirements.txt
+python3 setup_test_repo.py   # create schema + default config (idempotent)
+python3 -m pytest -v
 ```
 
-**Test Types:**
-- **Unit Tests**: Mock-based testing of individual functions
-- **Integration Tests**: Real server startup/shutdown with subprocess management
-- **Contract Tests**: Verify Senzing v4 SDK API compatibility
-- **Smoke Tests**: Basic validation for CI/CD pipelines
+See [TESTING.md](TESTING.md) for details. CI runs the full suite in the
+`senzing/senzingsdk-runtime` container.
 
 ## Docker Deployment
 

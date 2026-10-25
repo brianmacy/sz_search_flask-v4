@@ -4,7 +4,7 @@
 # Core testing framework (part of Python standard library)
 # unittest - no additional installation needed
 
-# For mocking HTTP requests in performance tests
+# HTTP client used by the performance tests
 requests==2.34.2
 
 # Optional: Enhanced JSON performance (used by perftest if available)
@@ -19,3 +19,7 @@ pytest-cov==7.1.0
 
 # Flask testing utilities (Flask is already required by main application)
 flask[testing]==3.1.3
+
+# Senzing v4 Python SDK (needs libSz from a Senzing install on the library path)
+senzing==4.1.2
+senzing-core==1.0.3

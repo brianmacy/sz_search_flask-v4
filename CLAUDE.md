@@ -32,8 +32,9 @@ python3 sz_search_flask.py
 python3 sz_search_flask_perftest.py data.jsonl --url http://localhost:5000/search --workers 10
 ```
 
-**Run unit tests:**
+**Run the test suite** (real engine, no mocks; needs `SENZING_ENGINE_CONFIGURATION_JSON` for a scratch repo, see TESTING.md):
 ```bash
+python3 setup_test_repo.py
 python3 -m unittest discover -s . -p "test_*.py"
 ```
 

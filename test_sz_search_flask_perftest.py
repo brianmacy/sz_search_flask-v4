@@ -1,43 +1,101 @@
 #!/usr/bin/env python3
 
-import json
+"""Tests for sz_search_flask_perftest against a real Flask server backed by
+the real Senzing engine (no mocks)."""
+
+import contextlib
+import io
 import os
+import subprocess
 import sys
 import tempfile
+import time
 import unittest
-from io import StringIO
-from unittest.mock import MagicMock, mock_open, patch
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import sz_search_flask_perftest
+from sz_test_support import (
+    TEST_DATA_FILE,
+    free_port,
+    import_app,
+    live_server,
+    silent_socket,
+    subprocess_env,
+)
+
+sz_search_flask = import_app()
+
+SEARCH_URL = None
+_server = None
+
+
+def setUpModule():
+    global SEARCH_URL, _server
+    _server = live_server(sz_search_flask.app)
+    SEARCH_URL = _server.__enter__() + '/search'
+
+
+def tearDownModule():
+    _server.__exit__(None, None, None)
+
+
+def run_capturing(func, *args):
+    """Call func(*args) capturing stdout; return (result, output)."""
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        result = func(*args)
+    return result, out.getvalue()
+
+
+@contextlib.contextmanager
+def jsonl_file(content, mode='w'):
+    """A temporary JSONL file with the given content (str or bytes)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / 'records.jsonl'
+        if mode == 'wb':
+            path.write_bytes(content)
+        else:
+            path.write_text(content)
+        yield str(path)
+
+
+@contextlib.contextmanager
+def argv(*args):
+    saved = sys.argv
+    sys.argv = ['sz_search_flask_perftest.py', *args]
+    try:
+        yield
+    finally:
+        sys.argv = saved
 
 
 class TestPerformanceTest(unittest.TestCase):
     """Test cases for the PerformanceTest class."""
 
     def setUp(self):
-        """Set up test fixtures before each test method."""
         self.perf_test = sz_search_flask_perftest.PerformanceTest(
-            url="http://localhost:5000/search",
-            max_workers=2,
-            timeout=10
+            url=SEARCH_URL, max_workers=2, timeout=10
         )
 
     def test_init_with_defaults(self):
-        """Test PerformanceTest initialization with defaults."""
-        with patch.dict(os.environ, {'SENZING_THREADS_PER_PROCESS': '5'}):
+        saved = os.environ.get('SENZING_THREADS_PER_PROCESS')
+        os.environ['SENZING_THREADS_PER_PROCESS'] = '5'
+        try:
             perf_test = sz_search_flask_perftest.PerformanceTest("http://test.com")
-            self.assertEqual(perf_test.url, "http://test.com")
-            self.assertEqual(perf_test.max_workers, 5)
-            self.assertEqual(perf_test.timeout, 30)
+        finally:
+            if saved is None:
+                del os.environ['SENZING_THREADS_PER_PROCESS']
+            else:
+                os.environ['SENZING_THREADS_PER_PROCESS'] = saved
+        self.assertEqual(perf_test.url, "http://test.com")
+        self.assertEqual(perf_test.max_workers, 5)
+        self.assertEqual(perf_test.timeout, 30)
 
     def test_init_custom_values(self):
-        """Test PerformanceTest initialization with custom values."""
         perf_test = sz_search_flask_perftest.PerformanceTest(
-            url="http://example.com/api",
-            max_workers=10,
-            timeout=60
+            url="http://example.com/api", max_workers=10, timeout=60
         )
         self.assertEqual(perf_test.url, "http://example.com/api")
         self.assertEqual(perf_test.max_workers, 10)
@@ -45,283 +103,190 @@ class TestPerformanceTest(unittest.TestCase):
         self.assertEqual(perf_test.request_times, [])
         self.assertEqual(perf_test.error_count, 0)
 
-    @patch('sz_search_flask_perftest.requests.post')
-    def test_send_request_success(self, mock_post):
-        """Test successful request sending."""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.content = b'{"result": "success"}'
-        mock_response.raise_for_status.return_value = None
-        mock_post.return_value = mock_response
+    def test_send_request_success(self):
+        result = self.perf_test.send_request({"NAME_FULL": "John Smith"})
 
-        data = {"NAME_FULL": "John Smith"}
-        result = self.perf_test.send_request(data)
-
-        self.assertTrue(result['success'])
+        self.assertTrue(result['success'], result)
         self.assertIsInstance(result['request_time'], float)
         self.assertEqual(result['status_code'], 200)
-        self.assertEqual(result['response_size'], 21)
+        self.assertGreater(result['response_size'], 0)
 
-    @patch('sz_search_flask_perftest.requests.post')
-    def test_send_request_with_json_string(self, mock_post):
-        """Test request sending with JSON string input."""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.content = b'{"result": "success"}'
-        mock_response.raise_for_status.return_value = None
-        mock_post.return_value = mock_response
+    def test_send_request_with_json_string(self):
+        result = self.perf_test.send_request('{"NAME_FULL": "Jane Doe"}')
 
-        json_data = '{"NAME_FULL": "Jane Doe"}'
-        result = self.perf_test.send_request(json_data)
+        self.assertTrue(result['success'], result)
+        self.assertEqual(result['status_code'], 200)
 
-        self.assertTrue(result['success'])
-        mock_post.assert_called_once()
-        _args, kwargs = mock_post.call_args
-        self.assertEqual(kwargs['data'], json_data)
+    def test_send_request_without_orjson(self):
+        saved = sz_search_flask_perftest.orjson
+        sz_search_flask_perftest.orjson = None
+        try:
+            result = self.perf_test.send_request({"NAME_FULL": "Test User"})
+        finally:
+            sz_search_flask_perftest.orjson = saved
 
-    @patch('sz_search_flask_perftest.orjson', None)
-    @patch('sz_search_flask_perftest.requests.post')
-    def test_send_request_without_orjson(self, mock_post):
-        """Test request sending without orjson library."""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.content = b'{"result": "success"}'
-        mock_response.raise_for_status.return_value = None
-        mock_post.return_value = mock_response
+        self.assertTrue(result['success'], result)
 
-        data = {"NAME_FULL": "Test User"}
-        result = self.perf_test.send_request(data)
-
-        self.assertTrue(result['success'])
-        mock_post.assert_called_once()
-
-    @patch('sz_search_flask_perftest.requests.post')
-    def test_send_request_http_error(self, mock_post):
-        """Test request sending with HTTP error."""
-        import requests
-        mock_post.side_effect = requests.exceptions.HTTPError("HTTP 500 Error")
-
-        data = {"NAME_FULL": "Test User"}
-        result = self.perf_test.send_request(data)
+    def test_send_request_http_error(self):
+        """An HTTP error status (engine rejects the input -> 422) is a failure."""
+        result = self.perf_test.send_request('invalid json')
 
         self.assertFalse(result['success'])
-        self.assertIn("HTTP 500 Error", result['error'])
+        self.assertIn("422", result['error'])
         self.assertIsInstance(result['request_time'], float)
 
-    @patch('sz_search_flask_perftest.requests.post')
-    def test_send_request_timeout(self, mock_post):
-        """Test request sending with timeout."""
-        import requests
-        mock_post.side_effect = requests.exceptions.Timeout("Request timeout")
-
-        data = {"NAME_FULL": "Test User"}
-        result = self.perf_test.send_request(data)
+    def test_send_request_timeout(self):
+        with silent_socket() as url:
+            perf_test = sz_search_flask_perftest.PerformanceTest(url=url, max_workers=1, timeout=1)
+            result = perf_test.send_request({"NAME_FULL": "Test User"})
 
         self.assertFalse(result['success'])
-        self.assertIn("Request timeout", result['error'])
+        self.assertIn("timed out", result['error'])
+
+    def test_send_request_connection_refused(self):
+        perf_test = sz_search_flask_perftest.PerformanceTest(
+            url=f"http://127.0.0.1:{free_port()}/search", max_workers=1, timeout=5
+        )
+        result = perf_test.send_request({"NAME_FULL": "Test User"})
+
+        self.assertFalse(result['success'])
 
     def test_print_progress_report(self):
-        """Test progress report printing."""
-        self.perf_test.start_time = 1000.0
+        self.perf_test.start_time = time.time() - 10
         self.perf_test.error_count = 5
 
-        with patch('time.time', return_value=1010.0):
-            with patch('builtins.print') as mock_print:
-                self.perf_test.print_progress_report(100)
+        _, output = run_capturing(self.perf_test.print_progress_report, 100)
 
-                mock_print.assert_called_once()
-                printed_text = mock_print.call_args[0][0]
-                self.assertIn("100", printed_text)
-                self.assertIn("10.00 req/sec", printed_text)
-                self.assertIn("Errors: 5", printed_text)
+        self.assertIn("Processed: 100 records", output)
+        self.assertRegex(output, r"Rate: \d+\.\d\d req/sec")
+        self.assertIn("Errors: 5", output)
 
     def test_print_final_report_no_requests(self):
-        """Test final report with no successful requests."""
-        self.perf_test.start_time = 1000.0
-        self.perf_test.total_requests = 0
+        self.perf_test.start_time = time.time() - 10
 
-        with patch('time.time', return_value=1010.0):
-            with patch('builtins.print') as mock_print:
-                self.perf_test.print_final_report(0)
+        _, output = run_capturing(self.perf_test.print_final_report, 0)
 
-                # Verify that print was called multiple times for the report
-                self.assertGreater(mock_print.call_count, 5)
+        self.assertIn("PERFORMANCE TEST RESULTS", output)
+        self.assertIn("Total requests sent: 0", output)
+        self.assertNotIn("TIMING STATISTICS", output)
 
     def test_print_final_report_with_timing_stats(self):
-        """Test final report with timing statistics."""
-        self.perf_test.start_time = 1000.0
+        self.perf_test.start_time = time.time() - 10
         self.perf_test.total_requests = 100
         self.perf_test.error_count = 10
-        self.perf_test.request_times = [0.1, 0.2, 0.3, 0.4, 0.5] * 20  # 100 requests
+        self.perf_test.request_times = [0.1, 0.2, 0.3, 0.4, 0.5] * 20
 
-        with patch('time.time', return_value=1010.0):
-            with patch('builtins.print') as mock_print:
-                self.perf_test.print_final_report(100)
+        _, output = run_capturing(self.perf_test.print_final_report, 100)
 
-                # Check that statistics were printed
-                printed_calls = [call[0][0] for call in mock_print.call_args_list]
-                stats_found = any("Average response time:" in call for call in printed_calls)
-                percentiles_found = any("90th percentile:" in call for call in printed_calls)
+        self.assertIn("Average response time: 0.3000s", output)
+        self.assertIn("90th percentile: 0.5000s", output)
+        self.assertIn("Success rate: 100.00%", output)
 
-                self.assertTrue(stats_found)
-                self.assertTrue(percentiles_found)
+    def test_process_file_success(self):
+        result, output = run_capturing(self.perf_test.process_file, str(TEST_DATA_FILE), 1)
 
-    @patch('builtins.open', new_callable=mock_open, read_data='{"NAME_FULL": "John Smith"}\n{"NAME_FULL": "Jane Doe"}\n')
-    @patch('sz_search_flask_perftest.PerformanceTest.send_request')
-    def test_process_file_success(self, mock_send_request, mock_file):
-        """Test successful file processing."""
-        mock_send_request.return_value = {
-            'success': True,
-            'request_time': 0.1
-        }
+        expected = sum(1 for line in TEST_DATA_FILE.read_text().splitlines() if line.strip())
+        self.assertTrue(result)
+        self.assertEqual(self.perf_test.error_count, 0, output)
+        self.assertEqual(len(self.perf_test.request_times), expected)
 
-        with patch('sz_search_flask_perftest.PerformanceTest.print_progress_report'):
-            with patch('sz_search_flask_perftest.PerformanceTest.print_final_report'):
-                result = self.perf_test.process_file("/fake/path.jsonl", report_interval=1)
+    def test_process_file_with_invalid_json(self):
+        with jsonl_file('invalid json\n{"NAME_FULL": "Valid"}\n') as path:
+            result, output = run_capturing(self.perf_test.process_file, path)
 
         self.assertTrue(result)
-        self.assertEqual(mock_send_request.call_count, 2)
-        self.assertEqual(len(self.perf_test.request_times), 2)
-
-    @patch('builtins.open', new_callable=mock_open, read_data='invalid json\n{"NAME_FULL": "Valid"}\n')
-    @patch('sz_search_flask_perftest.PerformanceTest.send_request')
-    def test_process_file_with_invalid_json(self, mock_send_request, mock_file):
-        """Test file processing with invalid JSON lines."""
-        mock_send_request.return_value = {
-            'success': True,
-            'request_time': 0.1
-        }
-
-        with patch('builtins.print') as mock_print:
-            with patch('sz_search_flask_perftest.PerformanceTest.print_progress_report'):
-                with patch('sz_search_flask_perftest.PerformanceTest.print_final_report'):
-                    result = self.perf_test.process_file("/fake/path.jsonl")
-
-        self.assertTrue(result)
-        # Should only process the valid JSON line
-        self.assertEqual(mock_send_request.call_count, 1)
-
-        # Check that error was printed for invalid JSON
-        error_printed = any("Invalid JSON" in str(call) for call in mock_print.call_args_list)
-        self.assertTrue(error_printed)
+        self.assertEqual(self.perf_test.total_requests, 1)
+        self.assertIn("Invalid JSON on line 1", output)
 
     def test_process_file_not_found(self):
-        """Test file processing with non-existent file."""
-        with patch('builtins.print') as mock_print:
-            result = self.perf_test.process_file("/nonexistent/file.jsonl")
+        with tempfile.TemporaryDirectory() as tmp:
+            missing = str(Path(tmp) / 'missing.jsonl')
+            result, output = run_capturing(self.perf_test.process_file, missing)
 
         self.assertFalse(result)
-        error_printed = any("File not found" in str(call) for call in mock_print.call_args_list)
-        self.assertTrue(error_printed)
+        self.assertIn("File not found", output)
 
-    @patch('builtins.open', new_callable=mock_open, read_data='{"NAME_FULL": "Test"}\n')
-    @patch('sz_search_flask_perftest.PerformanceTest.send_request')
-    def test_process_file_request_errors(self, mock_send_request, mock_file):
-        """Test file processing with request errors."""
-        mock_send_request.return_value = {
-            'success': False,
-            'error': 'Connection failed'
-        }
-
-        with patch('builtins.print') as mock_print:
-            with patch('sz_search_flask_perftest.PerformanceTest.print_progress_report'):
-                with patch('sz_search_flask_perftest.PerformanceTest.print_final_report'):
-                    result = self.perf_test.process_file("/fake/path.jsonl")
+    def test_process_file_request_errors(self):
+        perf_test = sz_search_flask_perftest.PerformanceTest(
+            url=f"http://127.0.0.1:{free_port()}/search", max_workers=1, timeout=5
+        )
+        with jsonl_file('{"NAME_FULL": "Test"}\n') as path:
+            result, output = run_capturing(perf_test.process_file, path)
 
         self.assertTrue(result)
-        self.assertEqual(self.perf_test.error_count, 1)
+        self.assertEqual(perf_test.error_count, 1)
+        self.assertIn("Request failed", output)
 
-        # Check that error was printed
-        error_printed = any("Request failed" in str(call) for call in mock_print.call_args_list)
-        self.assertTrue(error_printed)
+    def test_process_file_unreadable(self):
+        """Undecodable input is an unexpected error: process_file returns False."""
+        with jsonl_file(b'\xff\xfe\xfa\n', mode='wb') as path:
+            result, output = run_capturing(self.perf_test.process_file, path)
+
+        self.assertFalse(result)
+        self.assertIn("Unexpected error", output)
 
 
 class TestMainFunction(unittest.TestCase):
     """Test cases for the main function and CLI."""
 
-    @patch('sys.argv', ['sz_search_flask_perftest.py', '/test/file.jsonl'])
-    @patch('sz_search_flask_perftest.PerformanceTest.process_file')
-    @patch('os.path.isfile', return_value=True)
-    def test_main_with_defaults(self, mock_isfile, mock_process_file):
-        """Test main function with default arguments."""
-        mock_process_file.return_value = True
+    def test_main_with_defaults_and_custom_args(self):
+        with argv(str(TEST_DATA_FILE), '--url', SEARCH_URL, '--workers', '3',
+                  '--timeout', '20', '--report-interval', '2'):
+            _, output = run_capturing(sz_search_flask_perftest.main)
 
-        with patch('builtins.print'):
-            sz_search_flask_perftest.main()
+        self.assertIn("Starting performance test with 3 workers", output)
+        self.assertIn(f"Target URL: {SEARCH_URL}", output)
+        self.assertIn("Timeout: 20s", output)
+        self.assertIn("Report interval: 2 records", output)
+        self.assertIn("Failed requests: 0", output)
 
-        mock_process_file.assert_called_once_with('/test/file.jsonl', 1000)
+    def test_main_file_not_found(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with argv(str(Path(tmp) / 'missing.jsonl')):
+                out = io.StringIO()
+                with contextlib.redirect_stdout(out), self.assertRaises(SystemExit) as ctx:
+                    sz_search_flask_perftest.main()
 
-    @patch('sys.argv', [
-        'sz_search_flask_perftest.py',
-        '/test/file.jsonl',
-        '--url', 'http://custom:8080/search',
-        '--workers', '5',
-        '--timeout', '60',
-        '--report-interval', '500'
-    ])
-    @patch('sz_search_flask_perftest.PerformanceTest.process_file')
-    @patch('os.path.isfile', return_value=True)
-    def test_main_with_custom_args(self, mock_isfile, mock_process_file):
-        """Test main function with custom arguments."""
-        mock_process_file.return_value = True
+        self.assertEqual(ctx.exception.code, 1)
+        self.assertIn("does not exist", out.getvalue())
 
-        with patch('builtins.print'):
-            sz_search_flask_perftest.main()
-
-        mock_process_file.assert_called_once_with('/test/file.jsonl', 500)
-
-    @patch('sys.argv', ['sz_search_flask_perftest.py', '/nonexistent/file.jsonl'])
-    @patch('os.path.isfile', return_value=False)
-    def test_main_file_not_found(self, mock_isfile):
-        """Test main function with non-existent file."""
-        with patch('builtins.print') as mock_print:
-            with patch('sys.exit') as mock_exit:
+    def test_main_process_failure(self):
+        with jsonl_file(b'\xff\xfe\xfa\n', mode='wb') as path, argv(path, '--url', SEARCH_URL):
+            with contextlib.redirect_stdout(io.StringIO()), self.assertRaises(SystemExit) as ctx:
                 sz_search_flask_perftest.main()
 
-        mock_exit.assert_called_with(1)
-        error_printed = any("does not exist" in str(call) for call in mock_print.call_args_list)
-        self.assertTrue(error_printed)
+        self.assertEqual(ctx.exception.code, 1)
 
-    @patch('sys.argv', ['sz_search_flask_perftest.py', '/test/file.jsonl'])
-    @patch('sz_search_flask_perftest.PerformanceTest.process_file')
-    @patch('os.path.isfile', return_value=True)
-    def test_main_process_failure(self, mock_isfile, mock_process_file):
-        """Test main function when processing fails."""
-        mock_process_file.return_value = False
+    def test_main_success(self):
+        with argv(str(TEST_DATA_FILE), '--url', SEARCH_URL):
+            _, output = run_capturing(sz_search_flask_perftest.main)
 
-        with patch('builtins.print'), patch('sys.exit') as mock_exit:
-            sz_search_flask_perftest.main()
-
-        mock_exit.assert_called_once_with(1)
-
-    @patch('sys.argv', ['sz_search_flask_perftest.py', '/test/file.jsonl'])
-    @patch('sz_search_flask_perftest.PerformanceTest.process_file')
-    @patch('os.path.isfile', return_value=True)
-    def test_main_success(self, mock_isfile, mock_process_file):
-        """Test main function successful completion."""
-        mock_process_file.return_value = True
-
-        with patch('builtins.print') as mock_print:
-            sz_search_flask_perftest.main()
-
-        success_printed = any("completed successfully" in str(call) for call in mock_print.call_args_list)
-        self.assertTrue(success_printed)
+        self.assertIn("Timeout: 30s", output)
+        self.assertIn("Report interval: 1000 records", output)
+        self.assertIn("completed successfully", output)
 
 
 class TestOrjsonHandling(unittest.TestCase):
     """Test cases for orjson library handling."""
 
     def test_orjson_import_fallback(self):
-        """Test that the module handles missing orjson gracefully."""
-        # This test verifies the try/except import block works
-        # The actual fallback is tested in the send_request tests
-        import importlib
+        """With orjson unavailable the module falls back to the json module."""
+        code = (
+            "import sys; sys.modules['orjson'] = None; "
+            "import sz_search_flask_perftest as p; print('ORJSON', p.orjson)"
+        )
+        result = subprocess.run(
+            [sys.executable, '-c', code],
+            env=subprocess_env(),
+            cwd=Path(__file__).resolve().parent,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
 
-        with patch.dict('sys.modules', {'orjson': None}):
-            importlib.reload(sz_search_flask_perftest)
-
-        # Should not raise an error and orjson should be None
-        self.assertIsNone(sz_search_flask_perftest.orjson)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("WARNING: orjson not available", result.stdout)
+        self.assertIn("ORJSON None", result.stdout)
 
 
 if __name__ == '__main__':

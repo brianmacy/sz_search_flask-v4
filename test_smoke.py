@@ -11,13 +11,11 @@ import json
 import os
 import subprocess
 import sys
-import time
 import unittest
-from unittest.mock import patch
-
-import requests
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from sz_test_support import engine_config, subprocess_env
 
 
 class TestApplicationSmoke(unittest.TestCase):
@@ -25,24 +23,19 @@ class TestApplicationSmoke(unittest.TestCase):
 
     def setUp(self):
         """Set up test environment."""
-        self.test_env = os.environ.copy()
-        self.test_env['PYTHONPATH'] = '/opt/senzing/er/sdk/python'
-        # Ensure SENZING_ENGINE_CONFIGURATION_JSON is passed to subprocesses
-        if 'SENZING_ENGINE_CONFIGURATION_JSON' in os.environ:
-            self.test_env['SENZING_ENGINE_CONFIGURATION_JSON'] = os.environ['SENZING_ENGINE_CONFIGURATION_JSON']
+        self.test_env = subprocess_env()
 
     def test_application_imports_smoke(self):
         """Smoke test: Application imports without crashing."""
         result = subprocess.run(
             [sys.executable, '-c',
-             'import sys; sys.argv=["test"]; import sz_search_flask; print("OK")'],
+             'import sz_search_flask; print("OK")'],
             env=self.test_env,
             capture_output=True,
             text=True,
-            timeout=10
+            timeout=30
         )
 
-        # Should import successfully (may exit after due to missing config)
         self.assertIn("OK", result.stdout,
                      "Application should import successfully")
 
@@ -127,14 +120,11 @@ class TestApplicationSmoke(unittest.TestCase):
 
 
 class TestAPISmoke(unittest.TestCase):
-    """Smoke tests for API functionality using mocked dependencies."""
+    """Smoke tests for API functionality against the real Senzing engine."""
 
-    def setUp(self):
-        """Set up test environment."""
-        os.environ['PYTHONPATH'] = '/opt/senzing/er/sdk/python'
-        # Use the real configuration if available, otherwise use test config
-        if 'SENZING_ENGINE_CONFIGURATION_JSON' not in os.environ:
-            os.environ['SENZING_ENGINE_CONFIGURATION_JSON'] = '{"test": "config"}'
+    @classmethod
+    def setUpClass(cls):
+        engine_config()  # fail loudly if no engine is configured
 
     def test_flask_app_creation_smoke(self):
         """Smoke test: Flask app can be created."""
@@ -165,25 +155,12 @@ class TestAPISmoke(unittest.TestCase):
         app = sz_search_flask.app
         client = app.test_client()
 
-        # Mock the engine to avoid real Senzing dependency
-        mock_engine = type('MockEngine', (), {
-            'search_by_attributes': lambda *args, **kwargs: '{"entities": []}'
-        })()
+        response = client.post('/search',
+                               data='{"NAME_FULL": "Smoke Test"}',
+                               content_type='application/json')
 
-        with patch.object(sz_search_flask, 'sz_engine', mock_engine):
-            with patch.object(sz_search_flask, 'executor') as mock_executor:
-                # Mock executor.submit to return result immediately
-                mock_task = type('MockTask', (), {
-                    'result': lambda: '{"entities": []}'
-                })()
-                mock_executor.submit.return_value = mock_task
-
-                response = client.post('/search',
-                                     data='{"NAME_FULL": "Smoke Test"}',
-                                     content_type='application/json')
-
-                # Should get a response (400 for invalid JSON, 200 for success, 500 for server error)
-                self.assertIn(response.status_code, [200, 400, 500])
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('RESOLVED_ENTITIES', json.loads(response.data))
 
     def test_error_handling_smoke(self):
         """Smoke test: Application handles errors gracefully."""
@@ -197,9 +174,9 @@ class TestAPISmoke(unittest.TestCase):
                              data='invalid json',
                              content_type='application/json')
 
-        # Should handle error gracefully (not crash)
-        self.assertIsNotNone(response)
-        self.assertIsNotNone(response.status_code)
+        # Engine rejects it (SzError -> 422) with a generic JSON error
+        self.assertEqual(response.status_code, 422)
+        self.assertIn('error', json.loads(response.data))
 
 
 class TestPerformanceTestSmoke(unittest.TestCase):
@@ -221,7 +198,7 @@ class TestPerformanceTestSmoke(unittest.TestCase):
     def test_perftest_help_smoke(self):
         """Smoke test: Performance test script shows help."""
         result = subprocess.run(
-            ['./sz_search_flask_perftest.py', '--help'],
+            [sys.executable, 'sz_search_flask_perftest.py', '--help'],
             capture_output=True,
             text=True,
             timeout=5

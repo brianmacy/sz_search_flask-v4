@@ -1,185 +1,137 @@
 #!/usr/bin/env python3
 
+"""Unit tests for sz_search_flask against the real Senzing engine (no mocks)."""
+
 import json
 import os
 import sys
 import unittest
-from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-# Set PYTHONPATH for Senzing imports
-os.environ['PYTHONPATH'] = '/opt/senzing/er/sdk/python'
+from sz_test_support import import_app, iter_test_records, load_test_records
 
-import sz_search_flask
+sz_search_flask = import_app()
+
+
+def setUpModule():
+    load_test_records(sz_search_flask.sz_engine)
 
 
 class TestSzSearchFlask(unittest.TestCase):
     """Test cases for the sz_search_flask application."""
 
     def setUp(self):
-        """Set up test fixtures before each test method."""
         self.app = sz_search_flask.app
         self.app.config['TESTING'] = True
         self.client = self.app.test_client()
 
-        # Mock environment variables
-        self.env_patcher = patch.dict(os.environ, {
-            'SENZING_ENGINE_CONFIGURATION_JSON': '{"test": "config"}'
-        })
-        self.env_patcher.start()
-
-    def tearDown(self):
-        """Clean up after each test method."""
-        self.env_patcher.stop()
+    def post_search(self, data, query=''):
+        return self.client.post(f'/search{query}', data=data, content_type='application/json')
 
     def test_module_has_expected_globals(self):
-        """Test that module has expected global variables."""
-        self.assertTrue(hasattr(sz_search_flask, 'sz_engine'))
-        self.assertTrue(hasattr(sz_search_flask, 'executor'))
+        """Engine and executor are initialized at import."""
+        self.assertIsNotNone(sz_search_flask.sz_engine)
+        self.assertIsNotNone(sz_search_flask.executor)
         self.assertTrue(hasattr(sz_search_flask, 'app'))
         self.assertTrue(hasattr(sz_search_flask, 'logger'))
 
     def test_exception_to_code_function(self):
-        """Test exception_to_code function returns correct HTTP status."""
-        test_error = Exception("Test error")
-        result = sz_search_flask.exception_to_code(test_error)
-        self.assertEqual(result, 500)
+        """Exact, subclass and unknown exceptions map to HTTP codes."""
+        self.assertEqual(sz_search_flask.exception_to_code(Exception("x")), 500)
+        self.assertEqual(sz_search_flask.exception_to_code(ValueError("x")), 400)
+        self.assertEqual(sz_search_flask.exception_to_code(sz_search_flask.SzBadInputError("x")), 400)
+        self.assertEqual(sz_search_flask.exception_to_code(sz_search_flask.SzError("x")), 422)
 
-    @patch('sz_search_flask.executor')
-    @patch('sz_search_flask.sz_engine')
-    def test_search_endpoint_success(self, mock_engine, mock_executor):
-        """Test /search endpoint with successful search."""
-        mock_engine.search_by_attributes.return_value = '{"entities": [{"test": "data"}]}'
-
-        # Mock the executor task
-        mock_task = MagicMock()
-        mock_task.result.return_value = '{"entities": [{"test": "data"}]}'
-        mock_executor.submit.return_value = mock_task
-
-        # Send raw JSON data as the original API expects
-        response = self.client.post('/search',
-            data='{"NAME_FULL": "John Smith"}',
-            content_type='application/json'
-        )
+    def test_search_endpoint_success(self):
+        """A search for a loaded record returns that entity."""
+        _record_id, attributes = next(iter_test_records())
+        response = self.post_search(json.dumps(attributes))
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.data.decode(), '{"entities": [{"test": "data"}]}')
-        mock_executor.submit.assert_called_once()
+        result = json.loads(response.data)
+        names = [
+            entity['ENTITY']['RESOLVED_ENTITY'].get('ENTITY_NAME')
+            for entity in result['RESOLVED_ENTITIES']
+        ]
+        self.assertIn(attributes['NAME_FULL'], names)
 
-    @patch('sz_search_flask.executor')
-    def test_search_endpoint_error(self, mock_executor):
-        """Test /search endpoint with error."""
-        # Mock the executor to raise an exception
-        mock_task = MagicMock()
-        mock_task.result.side_effect = Exception("Test error")
-        mock_executor.submit.return_value = mock_task
+    def test_search_endpoint_error(self):
+        """Engine errors return the mapped status and a generic message (no details leaked)."""
+        response = self.post_search('invalid json')
 
-        response = self.client.post('/search',
-            data='{"NAME_FULL": "John Smith"}',
-            content_type='application/json'
-        )
+        self.assertEqual(response.status_code, 422)  # SzError (SENZ0027)
+        self.assertEqual(json.loads(response.data), {"error": "Internal server error"})
 
-        self.assertEqual(response.status_code, 500)
-        data = json.loads(response.data)
-        self.assertEqual(data["error"], "Test error")
-
-    @patch('sz_search_flask.executor')
-    def test_search_endpoint_no_data(self, mock_executor):
-        """Test /search endpoint with no request data."""
-        # Mock the executor to handle empty data gracefully
-        mock_task = MagicMock()
-        mock_task.result.side_effect = Exception("Empty request data")
-        mock_executor.submit.return_value = mock_task
-
+    def test_search_endpoint_no_data(self):
+        """An empty body is rejected by the engine with a JSON error."""
         response = self.client.post('/search')
 
-        self.assertEqual(response.status_code, 500)
-        data = json.loads(response.data)
-        self.assertIn("error", data)
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(json.loads(response.data), {"error": "Internal server error"})
 
-    @patch('sz_search_flask.executor')
-    @patch('sz_search_flask.sz_engine')
-    def test_search_endpoint_with_query_params(self, mock_engine, mock_executor):
-        """Test /search endpoint with query parameters for flags and profile."""
-        mock_engine.search_by_attributes.return_value = '{"entities": []}'
-
-        # Mock the executor task
-        mock_task = MagicMock()
-        mock_task.result.return_value = '{"entities": []}'
-        mock_executor.submit.return_value = mock_task
-
-        # Test with query parameters as the original API supports
-        response = self.client.post('/search?flags=TEST_FLAG&profile=CUSTOM',
-            data='{"NAME_FULL": "Jane Doe"}',
-            content_type='application/json'
-        )
+    def test_search_endpoint_with_query_parameters(self):
+        """flags and profile query parameters are accepted."""
+        response = self.post_search('{"NAME_FULL": "Jane Doe"}', '?flags=A|B&profile=SEARCH')
 
         self.assertEqual(response.status_code, 200)
-        mock_executor.submit.assert_called_once()
+        self.assertIn('RESOLVED_ENTITIES', json.loads(response.data))
+
+    def test_search_endpoint_unknown_profile(self):
+        """An unknown search profile is a client error (SzBadInputError -> 400)."""
+        response = self.post_search('{"NAME_FULL": "Jane Doe"}', '?profile=NO_SUCH_PROFILE')
+
+        self.assertEqual(response.status_code, 400)
 
     def test_process_search_function(self):
-        """Test process_search function signature."""
-        # Mock engine
-        mock_engine = MagicMock()
-        mock_engine.search_by_attributes.return_value = '{"entities": []}'
-
-        # Test the function exists and can be called
+        """process_search returns the engine's JSON string."""
         result = sz_search_flask.process_search(
-            mock_engine,
+            sz_search_flask.sz_engine,
             '{"NAME_FULL": "Test"}',
             sz_search_flask.SzEngineFlags.SZ_SEARCH_BY_ATTRIBUTES_DEFAULT_FLAGS,
-            "SEARCH"
+            "SEARCH",
         )
 
-        self.assertEqual(result, '{"entities": []}')
-        mock_engine.search_by_attributes.assert_called_once_with(
-            attributes='{"NAME_FULL": "Test"}',
-            flags=sz_search_flask.SzEngineFlags.SZ_SEARCH_BY_ATTRIBUTES_DEFAULT_FLAGS,
-            search_profile="SEARCH"
+        self.assertIn('RESOLVED_ENTITIES', json.loads(result))
+
+    def test_process_search_reraises_engine_errors(self):
+        """process_search propagates the engine's exception."""
+        with self.assertRaises(sz_search_flask.SzError):
+            sz_search_flask.process_search(
+                sz_search_flask.sz_engine,
+                'invalid json',
+                sz_search_flask.SzEngineFlags.SZ_SEARCH_BY_ATTRIBUTES_DEFAULT_FLAGS,
+                None,
+            )
+
+    def test_search_endpoint_with_raw_json(self):
+        """The raw request body reaches the engine unchanged."""
+        _record_id, attributes = list(iter_test_records())[1]
+        raw = json.dumps(attributes)
+        expected = sz_search_flask.process_search(
+            sz_search_flask.sz_engine,
+            raw,
+            sz_search_flask.SzEngineFlags.SZ_SEARCH_BY_ATTRIBUTES_DEFAULT_FLAGS,
+            None,
         )
 
-    @patch('sz_search_flask.executor')
-    @patch('sz_search_flask.sz_engine')
-    def test_search_endpoint_with_raw_json(self, mock_engine, mock_executor):
-        """Test /search endpoint with raw JSON data as original API expects."""
-        mock_engine.search_by_attributes.return_value = '{"entities": []}'
-
-        # Mock the executor task
-        mock_task = MagicMock()
-        mock_task.result.return_value = '{"entities": []}'
-        mock_executor.submit.return_value = mock_task
-
-        # Send raw JSON string as the original API expects
-        json_data = '{"NAME_FULL": "Test User"}'
-        response = self.client.post('/search',
-            data=json_data,
-            content_type='application/json'
-        )
+        response = self.post_search(raw)
 
         self.assertEqual(response.status_code, 200)
-        mock_executor.submit.assert_called_once()
-
-        # Verify the process_search was called with the raw data
-        call_args = mock_executor.submit.call_args[0]
-        self.assertEqual(call_args[0], sz_search_flask.process_search)
-        self.assertEqual(call_args[2], json_data)  # Third argument is the raw JSON data
+        self.assertEqual(
+            json.loads(response.data)['RESOLVED_ENTITIES'],
+            json.loads(expected)['RESOLVED_ENTITIES'],
+        )
 
 
 class TestEnvironmentConfiguration(unittest.TestCase):
     """Test environment variable configuration."""
 
     def test_environment_variables_handled(self):
-        """Test that environment variables are properly handled."""
-        # Test that the module handles environment variables
-        self.assertTrue(hasattr(sz_search_flask, 'app'))
-
-        # Test default Flask configuration
         with sz_search_flask.app.app_context():
             self.assertIsNotNone(sz_search_flask.app)
 
     def test_application_routes(self):
-        """Test that application has expected routes."""
         routes = [rule.rule for rule in sz_search_flask.app.url_map.iter_rules()]
         self.assertIn('/search', routes)
 
