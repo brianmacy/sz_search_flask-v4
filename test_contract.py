@@ -7,33 +7,32 @@ These tests verify that our application correctly uses the Senzing v4 SDK
 and that the SDK provides the expected interface and behavior.
 """
 
-import json
+import ast
 import os
+import subprocess
 import sys
 import unittest
-from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from sz_test_support import CONFIG_ENV, REPO_DIR, subprocess_env
+
+APP_FILE = REPO_DIR / 'sz_search_flask.py'
+
+
+def imported_names(module):
+    """Names the application imports from `module` (parsed, not string-matched)."""
+    tree = ast.parse(APP_FILE.read_text())
+    return {
+        alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.module == module
+        for alias in node.names
+    }
 
 
 class TestSenzingV4APIContract(unittest.TestCase):
     """Test that Senzing v4 SDK has the expected API interface."""
-
-    def setUp(self):
-        """Set up test environment."""
-        self.original_pythonpath = os.environ.get('PYTHONPATH', '')
-        os.environ['PYTHONPATH'] = '/opt/senzing/er/sdk/python'
-
-        # Prevent application from trying to initialize on import
-        self.config_patcher = patch.dict(os.environ, {
-            'SENZING_ENGINE_CONFIGURATION_JSON': '{}'
-        }, clear=False)
-        self.config_patcher.start()
-
-    def tearDown(self):
-        """Clean up test environment."""
-        self.config_patcher.stop()
-        os.environ['PYTHONPATH'] = self.original_pythonpath
 
     def test_senzing_v4_imports_available(self):
         """Contract test: Verify Senzing v4 imports are available."""
@@ -105,30 +104,23 @@ class TestSenzingV4APIContract(unittest.TestCase):
 
     def test_application_imports_match_contract(self):
         """Contract test: Verify our application imports match v4 SDK."""
-        with open('sz_search_flask.py', 'r') as f:
-            content = f.read()
-            self.assertIn("from senzing_core import SzAbstractFactoryCore", content,
-                         "Should import SzAbstractFactoryCore from v4 SDK")
-            self.assertIn("from senzing import SzError, SzEngineFlags", content,
-                         "Should import SzError and SzEngineFlags from v4 SDK")
+        self.assertIn('SzAbstractFactoryCore', imported_names('senzing_core'),
+                      "Should import SzAbstractFactoryCore from senzing_core")
+        self.assertTrue({'SzError', 'SzEngineFlags'} <= imported_names('senzing'),
+                        "Should import SzError and SzEngineFlags from senzing")
 
 
 class TestAPICompatibilityContract(unittest.TestCase):
     """Test that our API maintains compatibility with original v3 interface."""
 
-    def setUp(self):
-        """Set up test environment."""
-        os.environ['PYTHONPATH'] = '/opt/senzing/er/sdk/python'
-
     def test_application_file_exists(self):
         """Contract test: Application file exists and is readable."""
-        import os
-        self.assertTrue(os.path.exists('sz_search_flask.py'),
+        self.assertTrue(APP_FILE.exists(),
                        "sz_search_flask.py should exist")
 
     def test_application_has_search_route_definition(self):
         """Contract test: Application file contains search route definition."""
-        with open('sz_search_flask.py', 'r') as f:
+        with open(APP_FILE) as f:
             content = f.read()
             self.assertIn("@app.route('/search'", content,
                          "Should have /search route definition")
@@ -137,7 +129,7 @@ class TestAPICompatibilityContract(unittest.TestCase):
 
     def test_application_has_expected_functions(self):
         """Contract test: Application file contains expected function definitions."""
-        with open('sz_search_flask.py', 'r') as f:
+        with open(APP_FILE) as f:
             content = f.read()
             self.assertIn("def do_search()", content,
                          "Should have do_search function")
@@ -148,14 +140,14 @@ class TestAPICompatibilityContract(unittest.TestCase):
 
     def test_application_uses_raw_request_data(self):
         """Contract test: Application uses raw request data like original."""
-        with open('sz_search_flask.py', 'r') as f:
+        with open(APP_FILE) as f:
             content = f.read()
             self.assertIn("request.data.decode()", content,
                          "Should use raw request data like original")
 
     def test_application_supports_query_parameters(self):
         """Contract test: Application supports query parameters like original."""
-        with open('sz_search_flask.py', 'r') as f:
+        with open(APP_FILE) as f:
             content = f.read()
             self.assertIn("request.args.get('flags')", content,
                          "Should support flags query parameter")
@@ -168,27 +160,19 @@ class TestEnvironmentContract(unittest.TestCase):
 
     def test_required_environment_variables(self):
         """Contract test: Application properly handles required env vars."""
-        # Test that missing config is handled properly
-        with patch.dict(os.environ, {'PYTHONPATH': '/opt/senzing/er/sdk/python'}, clear=True):
-            with patch('builtins.exit') as mock_exit:
-                with patch('builtins.print') as mock_print:
-                    try:
-                        # This should trigger the missing config error
-                        import importlib
-                        import sys
-                        if 'sz_search_flask' in sys.modules:
-                            importlib.reload(sys.modules['sz_search_flask'])
-                        else:
-                            import sz_search_flask
-                    except SystemExit:
-                        pass  # Expected
-
-                    # Should have called exit(-1)
-                    mock_exit.assert_called_with(-1)
+        # The app calls sys.exit(-1) (exit status 255) when the config is missing.
+        env = subprocess_env()
+        env.pop(CONFIG_ENV, None)
+        result = subprocess.run(
+            [sys.executable, str(APP_FILE)],
+            env=env, capture_output=True, text=True, timeout=30,
+        )
+        self.assertEqual(result.returncode, 255, result.stderr)
+        self.assertIn(CONFIG_ENV, result.stderr)
 
     def test_optional_environment_variables(self):
         """Contract test: Application handles optional env vars correctly."""
-        with open('sz_search_flask.py', 'r') as f:
+        with open(APP_FILE) as f:
             content = f.read()
             # Check that application reads optional environment variables
             self.assertIn('SENZING_THREADS_PER_PROCESS', content,

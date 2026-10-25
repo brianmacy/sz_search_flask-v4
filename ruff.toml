@@ -1,8 +1,8 @@
 # Ruff configuration for sz_search_flask-v4
 #
 # The test suite intentionally imports Senzing SDK symbols to assert their
-# availability (contract tests) and keeps a few mock/handle bindings that are
-# not directly referenced. Those trigger F401 (unused import) and F841 (unused
+# availability (contract tests) and keeps a few handle bindings that are not
+# directly referenced. Those trigger F401 (unused import) and F841 (unused
 # local) in test files even though the code is correct as written, so we relax
 # just those two rules for the test modules while keeping full linting on the
 # application code.
@@ -18,7 +18,7 @@ ignore = ["BLE001"]
 [lint.per-file-ignores]
 # Test modules: relax F401/F841 (see above) plus a few style rules that only
 # reflect test-harness conventions and carry no runtime behavior:
-#   SIM117  - nested `with patch(...)` blocks are clearer per-mock in tests
+#   SIM117  - nested `with` blocks (redirect_stdout + assertRaises) in tests
 #   PLW1510 - helper subprocess.run() calls without an explicit check=
 #   PLW1509 - subprocess preexec_fn used for process-group teardown in tests
 "test_*.py" = ["F401", "F841", "SIM117", "PLW1510", "PLW1509"]

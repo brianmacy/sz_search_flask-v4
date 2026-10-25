@@ -23,16 +23,39 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install dependencies
-        run: |
-          pip install ruff==0.17.2 pytest
-          pip install -r requirements.txt
+        run: pip install ruff==0.17.2
       - name: Ruff lint
         run: ruff check .
       - name: Compile check (syntax)
         run: python -m compileall -q .
-      # Only the perftest suite runs in CI: it is pure Python (stdlib +
-      # requests) and needs no Senzing engine. The other test_*.py modules
-      # start the Flask app / real Senzing engine and require the Senzing
-      # runtime at /opt/senzing, which is unavailable in CI.
-      - name: Run engine-free tests
-        run: pytest test_sz_search_flask_perftest.py -q
+
+  test:
+    name: Full test suite (real Senzing engine)
+    runs-on: ubuntu-latest
+    # The Senzing runtime image supplies libSz and the engine resources; the
+    # suite runs against a scratch SQLite repository created by setup_test_repo.py.
+    container:
+      image: senzing/senzingsdk-runtime:4.3.3
+      options: --user root
+    env:
+      LD_LIBRARY_PATH: /opt/senzing/er/lib
+      SENZING_ENGINE_CONFIGURATION_JSON: >-
+        {"PIPELINE":{"CONFIGPATH":"/opt/senzing/er/resources/templates",
+        "RESOURCEPATH":"/opt/senzing/er/resources","SUPPORTPATH":"/opt/senzing/data"},
+        "SQL":{"CONNECTION":"sqlite3://na:na@/tmp/sz_test/G2C.db"}}
+    steps:
+      - uses: actions/checkout@v7
+      # senzingsdk-setup supplies the SQLite schema SQL
+      # (<RESOURCEPATH>/schema/szcore-schema-sqlite-create.sql) used by setup_test_repo.py.
+      - name: Install Python and Senzing setup files
+        run: |
+          apt-get update
+          apt-get -y install --no-install-recommends python3 python3-venv senzingsdk-setup
+      - name: Install dependencies
+        run: |
+          python3 -m venv /tmp/venv
+          /tmp/venv/bin/pip install -r requirements.txt -r test_requirements.txt
+      - name: Create scratch Senzing repository
+        run: /tmp/venv/bin/python setup_test_repo.py
+      - name: Run full test suite
+        run: /tmp/venv/bin/python -m pytest -v
