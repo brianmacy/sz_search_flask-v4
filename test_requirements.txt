@@ -8,10 +8,10 @@
 requests==2.34.2
 
 # Optional: Enhanced JSON performance (used by perftest if available)
-orjson==3.11.9
+orjson==3.12.0
 
 # Optional: For test coverage reporting
-coverage==7.14.3
+coverage==7.16.1
 
 # Optional: For test discovery and enhanced reporting
 pytest==9.1.1
