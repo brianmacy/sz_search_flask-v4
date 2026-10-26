@@ -11,7 +11,7 @@ requests==2.34.2
 orjson==3.12.0
 
 # Optional: For test coverage reporting
-coverage==7.16.1
+coverage==7.16.2
 
 # Optional: For test discovery and enhanced reporting
 pytest==9.1.1
